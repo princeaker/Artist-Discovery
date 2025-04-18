@@ -2,3 +2,7 @@ boto3
 notebook
 requests
 dotenv
+pyjwt[crypto]
+pandas=2.2.3
+pyarrow=19.0.1
+awscli
