@@ -17,6 +17,11 @@ variable "airflow_admin_password" {
   type        = string
 }
 
+variable "db_password" {
+  description = "Database password"
+  type        = string
+}
+
 ## Your repository url
 variable "repo_url" {
   description = "Repository url to clone into production machine"

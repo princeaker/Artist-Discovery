@@ -26,7 +26,6 @@ resource "aws_internet_gateway" "igw" {
 }
 
 
-
 resource "aws_subnet" "subnet-1" {
   vpc_id     = aws_vpc.artist-discovery-vpc.id
   cidr_block = "10.0.1.0/24"
@@ -36,6 +35,65 @@ resource "aws_subnet" "subnet-1" {
     Name = "prod-subnet"
   }
 }
+
+resource "aws_subnet" "private_subnet_1" {
+  vpc_id                  = aws_vpc.artist-discovery-vpc.id
+  cidr_block              = "10.0.2.0/24"
+  availability_zone       = "us-east-2a"
+  map_public_ip_on_launch = false
+}
+
+resource "aws_subnet" "private_subnet_2" {
+  vpc_id                  = aws_vpc.artist-discovery-vpc.id
+  cidr_block              = "10.0.3.0/24"
+  availability_zone       = "us-east-2b"
+  map_public_ip_on_launch = false
+}
+
+resource "aws_db_subnet_group" "airflow_db_subnet_group" {
+  name       = "airflow-db-subnet-group"
+  subnet_ids = [aws_subnet.private_subnet_1.id, aws_subnet.private_subnet_2.id]
+
+  tags = {
+    Name = "Airflow DB Subnet Group"
+  }
+}
+
+resource "aws_db_instance" "airflow_postgres" {
+  identifier              = "airflow-postgres"
+  engine                  = "postgres"
+  instance_class          = "db.t3.micro"
+  allocated_storage       = 20
+  db_name                 = "airflowdb"
+  username                = "airflowuser"
+  password                = var.db_password
+  port                    = 5432
+  db_subnet_group_name    = aws_db_subnet_group.airflow_db_subnet_group.name
+  vpc_security_group_ids  = [aws_security_group.postgres_sg.id]
+  publicly_accessible     = false
+  skip_final_snapshot     = true
+}
+
+resource "aws_security_group" "postgres_sg" {
+  name        = "postgres-sg"
+  description = "Allow DB traffic from EC2"
+  vpc_id      = aws_vpc.artist-discovery-vpc.id
+
+  ingress {
+    from_port       = 5432
+    to_port         = 5432
+    protocol        = "tcp"
+    security_groups = [aws_security_group.airflow_security_group.id]  # Airflow EC2 SG
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
 
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.artist-discovery-vpc.id
@@ -137,6 +195,19 @@ resource "aws_ssm_parameter" "airflow_admin_password" {
   }
 }
 
+resource "aws_ssm_parameter" "postgres_db_password" {
+  name        = "/airflow/db_password"
+  type        = "SecureString"
+  value       = var.db_password
+  description = "PostgreSQL db password"
+
+  lifecycle {
+    ignore_changes = [
+      value,
+    ]
+  }
+}
+
 resource "aws_instance" "airflow-server" {
   ami           = "ami-060a84cbcb5c14844"
   instance_type = "t2.micro"
@@ -146,7 +217,11 @@ resource "aws_instance" "airflow-server" {
   vpc_security_group_ids = [aws_security_group.airflow_security_group.id]
 
 
-  user_data = file("user_data.sh")
+  user_data = templatefile("${path.module}/user_data.sh", {
+    db_host     = aws_db_instance.airflow_postgres.address,
+    db_name     = "airflowdb",
+    db_user     = "airflowuser"
+  })
 
   tags = {
     Name = "Airflow-Server"
