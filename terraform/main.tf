@@ -154,8 +154,8 @@ resource "aws_key_pair" "generated_key" {
   public_key      = tls_private_key.custom_key.public_key_openssh
 }
 
-# 3. IAM Role and Policy for SSM Access
-resource "aws_iam_role" "ec2_ssm_role" {
+# 3. IAM Role and Policy for AWS Resource Access
+resource "aws_iam_role" "ec2_pipeline_role" {
   name = "ec2-airflow-ssm-role"
 
   assume_role_policy = jsonencode({
@@ -168,18 +168,80 @@ resource "aws_iam_role" "ec2_ssm_role" {
       Action = "sts:AssumeRole"
     }]
   })
+
+  max_session_duration = 7200 # 2 hours
 }
 
-resource "aws_iam_policy_attachment" "ssm_attach" {
-  name       = "attach-ssm"
-  roles      = [aws_iam_role.ec2_ssm_role.name]
+resource "aws_iam_policy_attachment" "ec2_ssm_attach" {
+  name       = "ec2_attach-ssm"
+  roles      = [aws_iam_role.ec2_pipeline_role.name]
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMReadOnlyAccess"
+}
+
+resource "aws_iam_policy_attachment" "ec2_s3_attach" {
+  name       = "ec2_attach-s3"
+  roles      = [aws_iam_role.ec2_pipeline_role.name]
+  policy_arn = "arn:aws:iam::aws:policy/AmazonS3FullAccess"
+}
+
+resource "aws_iam_policy_attachment" "attach_glue" {
+  name       = "ec2_attach-glue"
+  roles      = [aws_iam_role.ec2_pipeline_role.name]
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole"
 }
 
 resource "aws_iam_instance_profile" "ec2_instance_profile" {
   name = "ec2-airflow-profile"
-  role = aws_iam_role.ec2_ssm_role.name
+  role = aws_iam_role.ec2_pipeline_role.name
 }
+
+data "aws_iam_policy_document" "policy" {
+  statement {
+    effect    = "Allow"
+    actions   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_role" "glue_role" {
+  name = "glue-execution-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [{
+      Effect = "Allow",
+      Principal = {
+        Service = "glue.amazonaws.com"
+      },
+      Action = "sts:AssumeRole"
+    }]
+  })
+
+  max_session_duration = 7200 # 2 hours
+}
+
+resource "aws_iam_policy_attachment" "glue_policy" {
+  name       = "glue_attach-policy"
+  roles      = [aws_iam_role.glue_role.name]
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole"
+}
+
+resource "aws_iam_policy_attachment" "ssm_policy" {
+  name       = "glue_attach-ssm"
+  roles      = [aws_iam_role.glue_role.name]
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMReadOnlyAccess"
+}
+resource "aws_iam_policy" "s3_policy" {
+  name        = "glue-s3-policy"
+  description = "Policy to allow Glue to access S3 buckets"
+  policy      = data.aws_iam_policy_document.policy.json
+}
+resource "aws_iam_policy_attachment" "s3_policy" {
+  name       = "glue_attach-s3"
+  roles      = [aws_iam_role.glue_role.name]
+  policy_arn = aws_iam_policy.s3_policy.arn
+}
+
 
 # 4. SSM Parameter
 resource "aws_ssm_parameter" "airflow_admin_password" {
@@ -208,9 +270,71 @@ resource "aws_ssm_parameter" "postgres_db_password" {
   }
 }
 
+resource "aws_ssm_parameter" "iss" {
+  name        = "/apple/iss"
+  type        = "SecureString"
+  value       = var.iss
+  description = "Issuer for apple authentication"
+
+  lifecycle {
+    ignore_changes = [
+      value,
+    ]
+  }
+}
+
+resource "aws_ssm_parameter" "apple_private_key" {
+  name        = "/apple/private_key"
+  type        = "SecureString"
+  value       = var.apple_private_key
+  description = "apple private key used to sign JWT tokens"
+
+  lifecycle {
+    ignore_changes = [
+      value,
+    ]
+  }
+}
+
+resource "aws_ssm_parameter" "kid" {
+  name        = "/apple/kid"
+  type        = "String"
+  value       = var.kid
+  description = "apple private key identifer obtained from apple developer account"
+
+  lifecycle {
+    ignore_changes = [
+      value,
+    ]
+  }
+}
+
+# glue job to process music albums data
+# resource "aws_glue_job" "artist_discovery" {
+#   name     = "artist_albums_job"
+#   description = "Glue job to process music albums data"
+#   role_arn = aws_iam_role.glue_role.arn
+
+#   command {
+#     name            = "pythonshell"
+#     script_location = "s3://artist-discovery-scripts/get_music_albums.py"
+#     python_version  = "3.9"
+#   }
+
+# # created a zip file with pyarrow and pyjwt[crypto] and uploaded to S3
+# # This is used to run the Glue job with the necessary dependencies
+#   default_arguments = {
+#     "--extra-py-files" = "s3://artist-discovery-scripts/glue_deps.zip"
+#   }
+
+#   max_capacity = 0.0625
+#   max_retries       = 0
+# }
+
+
 resource "aws_instance" "airflow-server" {
-  ami           = "ami-060a84cbcb5c14844"
-  instance_type = "t2.micro"
+  ami           = "ami-06c8f2ec674c67112"
+  instance_type = "t2.small"
   key_name    = aws_key_pair.generated_key.key_name
   iam_instance_profile = aws_iam_instance_profile.ec2_instance_profile.name
   subnet_id = aws_subnet.subnet-1.id

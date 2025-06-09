@@ -1,8 +1,10 @@
-boto3=1.38.11
+boto3==1.38.11
 notebook
 requests
 dotenv
-pyjwt[crypto]
-pandas=2.2.3
-pyarrow=19.0.1
-awscli=1.40.10
+pyjwt[crypto]==2.10.1
+pandas==2.2.3
+pyarrow==19.0.1
+awscli==1.40.10
+apache-airflow
+apache-airflow-providers-amazon

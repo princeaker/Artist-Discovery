@@ -10,6 +10,13 @@
 	},
 	"features": {
 		"ghcr.io/devcontainers/features/terraform:1": {}
+	},
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"ms-toolsai.jupyter"
+			]
+		}
 	}
 
 	// Features to add to the dev container. More info: https://containers.dev/features.

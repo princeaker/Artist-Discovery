@@ -28,3 +28,18 @@ variable "repo_url" {
   type        = string
   default     = "https://github.com/princeaker/Artist-Discovery"
 }
+
+variable "iss" {
+  description = "Issuer for apple authentication"
+  type        = string
+}
+
+variable "apple_private_key" {
+  description = "Apple private key used to sign JWT tokens"
+  type        = string
+}
+
+variable "kid" {
+  description = "key identifer obtained from apple developer account"
+  type        = string
+}
