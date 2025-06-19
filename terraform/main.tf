@@ -309,6 +309,22 @@ resource "aws_ssm_parameter" "kid" {
   }
 }
 
+resource "aws_ssm_parameter" "seatgeek_client_id" {
+  name        = "/seatgeek/client_key"
+  type        = "String"
+  value       = var.seatgeek_client_id
+  description = "This is the client identifier for the SeatGeek API"
+
+}
+
+resource "aws_ssm_parameter" "seatgeek_client_secret" {
+  name        = "/seatgeek/client_secret"
+  type        = "String"
+  value       = var.seatgeek_client_secret
+  description = "This is the client secret for the SeatGeek API"
+
+}
+
 # glue job to process music albums data
 # resource "aws_glue_job" "artist_discovery" {
 #   name     = "artist_albums_job"

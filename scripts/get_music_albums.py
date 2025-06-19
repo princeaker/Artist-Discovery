@@ -1,3 +1,5 @@
+#No longer in use since the PythonOperator is preferred 
+# over the python shell in Glue for the pipeline tasks
 import sys
 import zipfile
 import os

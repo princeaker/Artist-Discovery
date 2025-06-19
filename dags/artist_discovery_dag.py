@@ -1,7 +1,9 @@
 from airflow import DAG
 from datetime import datetime
 from airflow.operators.python import PythonOperator
-from utils.artist_discovery_dag.get_albums import process
+from utils.artist_discovery_dag.discovery_utils.album_utils import album_process
+from utils.artist_discovery_dag.discovery_utils.event_utils import event_process
+from utils.artist_discovery_dag.discovery_utils.artist_events_utils import artist_events_process
 # from airflow.providers.amazon.aws.operators.glue import GlueJobOperator
 
 
@@ -23,8 +25,18 @@ with DAG(
     # Task to get music albums from Apple Music
     get_albums_task = PythonOperator(
         task_id='get_music_albums',
-        python_callable=process
-        # Replace with the actual function to retrieve albums
+        python_callable=album_process
+    )
+
+    get_events_task = PythonOperator(
+        task_id='get_events',
+        python_callable=event_process
+   
+    )
+
+    get_artist_upcoming_events_task = PythonOperator(
+        task_id='get_artist_upcoming_events',
+        python_callable=artist_events_process  # Replace with your analytics processing function
     )
     
 
@@ -35,4 +47,4 @@ with DAG(
     #     region_name='us-east-2',  # Update with your region
     # )
     
-    get_albums_task
+    get_albums_task >> get_events_task >> get_artist_upcoming_events_task

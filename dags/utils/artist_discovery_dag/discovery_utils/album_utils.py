@@ -9,6 +9,7 @@ import pyarrow as pa
 import logging
 import pyarrow.parquet as pq
 from io import BytesIO
+from utils.artist_discovery_dag.discovery_utils.aws_helpers.aws_utils import upload_df_to_s3_parquet
 
 def get_jwt_token(kID, private_key, iss):
     header = {
@@ -50,39 +51,13 @@ def get_albums(kID, private_key, iss):
         df = pd.DataFrame(album_list, columns=['key', 'album_name', 'album_artist', 'release_date'])
         df['ingest_ts'] = datetime.datetime.now()
         return df
-    except:
+    except Exception as e:
         logging.error("Failed to create DataFrame from album list")
-        return False
+        raise e
 
 
-def upload_df_to_s3_parquet(df, bucket_name, file_path=None):
-    """Upload a file to an S3 bucket
 
-    :param file_name: File to upload
-    :param bucket: Bucket to upload to
-    :param object_name: S3 object name. If not specified then file_name is used
-    :return: True if file was uploaded, else False
-    """
-
-    # If S3 object_name was not specified, use file_name
-    buffer = BytesIO()
-
-    table = pa.Table.from_pandas(df)
-    pq.write_table(table, buffer)
-    buffer.seek(0)
-
-    if file_path is None:
-        file_path = str(pd.to_datetime('today').date()) + '/albums_' + str(pd.to_datetime('today').date()) + '.parquet' 
-
-    # Upload the file
-    s3_client = boto3.client('s3', region_name='us-east-2')
-    try:
-        response = s3_client.upload_fileobj(buffer, bucket_name, file_path)
-    except:
-        logging.error(f"Failed to upload {file_path} to {bucket_name}/{file_path}")
-        return False
-
-def process():
+def album_process():
     #unique identifier associated with private keys used for signing and authentication in apple developer ecosystem
     # #needed for access to the authkey file obtained from apple developer account
     # #this file is used to sign the JWT token
@@ -103,7 +78,7 @@ def process():
 
     df = get_albums(kID, private_key, iss)
 
-    bucket_name = "apple-albums"
+    bucket_name = "artist-discovery-data"
 
     # Upload the DataFrame to S3
     upload_df_to_s3_parquet(df, bucket_name)

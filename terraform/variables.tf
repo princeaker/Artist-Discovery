@@ -43,3 +43,13 @@ variable "kid" {
   description = "key identifer obtained from apple developer account"
   type        = string
 }
+
+variable "seatgeek_client_id" {
+  description = "Seatgeek developer client identifier for app"
+  type        = string
+}
+
+variable "seatgeek_client_secret" {
+  description = "Seatgeek client secret for app"
+  type        = string
+}
