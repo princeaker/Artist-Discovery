@@ -35,6 +35,9 @@ resource "aws_subnet" "subnet-1" {
     Name = "prod-subnet"
   }
 }
+# Two Private subnets are needded for RDS instance of Postgres DB
+# This prevents public internet access to the database
+# and forces all access to go through internal AWS resources
 
 resource "aws_subnet" "private_subnet_1" {
   vpc_id                  = aws_vpc.artist-discovery-vpc.id
@@ -127,7 +130,7 @@ resource "aws_vpc_security_group_ingress_rule" "allow_scp" {
   cidr_ipv4         = "0.0.0.0/0"
   from_port         = 22
   ip_protocol       = "tcp"
-  to_port           = 22
+  to_port           = 22 # Allow SSH access from anywhere
 }
 
 resource "aws_vpc_security_group_egress_rule" "allow_all_ports" {
@@ -144,6 +147,40 @@ resource "aws_vpc_security_group_ingress_rule" "allow_all_traffic_ipv4" {
   ip_protocol       = "tcp" # semantically equivalent to all ports
 }
 
+# Create security group for access to Metabase EC2 instance
+resource "aws_security_group" "metabase_security_group" {
+  name        = "metabase_security_group"
+  description = "Allow HTTP and SSH"
+  vpc_id      = aws_vpc.artist-discovery-vpc.id
+
+  tags = {
+    Name = "metabase_security_group"
+  }
+
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"] # SSH
+  }
+
+  ingress {
+    from_port   = 3000
+    to_port     = 3000
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"] # Metabase
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+# Generated aws key pair for Airflow EC2 instance
+
 resource "tls_private_key" "custom_key" {
   algorithm = "RSA"
   rsa_bits  = 4096
@@ -153,6 +190,19 @@ resource "aws_key_pair" "generated_key" {
   key_name_prefix = var.key_name
   public_key      = tls_private_key.custom_key.public_key_openssh
 }
+
+# Generated aws key pair for Metabase EC2 instance
+resource "tls_private_key" "metabase_custom_key" {
+  algorithm = "RSA"
+  rsa_bits  = 4096
+}
+
+resource "aws_key_pair" "metabase_generated_key" {
+  key_name_prefix = var.metabase_key_name
+  public_key      = tls_private_key.metabase_custom_key.public_key_openssh
+}
+
+
 
 # 3. IAM Role and Policy for AWS Resource Access
 resource "aws_iam_role" "ec2_pipeline_role" {
@@ -190,58 +240,16 @@ resource "aws_iam_policy_attachment" "attach_glue" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole"
 }
 
+resource "aws_iam_policy_attachment" "ec2_athena_attach" {
+  name       = "ec2_attach-athena"
+  roles      = [aws_iam_role.ec2_pipeline_role.name]
+  policy_arn = "arn:aws:iam::aws:policy/AmazonAthenaFullAccess"
+}
+
 resource "aws_iam_instance_profile" "ec2_instance_profile" {
   name = "ec2-airflow-profile"
   role = aws_iam_role.ec2_pipeline_role.name
 }
-
-data "aws_iam_policy_document" "policy" {
-  statement {
-    effect    = "Allow"
-    actions   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
-    resources = ["*"]
-  }
-}
-
-resource "aws_iam_role" "glue_role" {
-  name = "glue-execution-role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17",
-    Statement = [{
-      Effect = "Allow",
-      Principal = {
-        Service = "glue.amazonaws.com"
-      },
-      Action = "sts:AssumeRole"
-    }]
-  })
-
-  max_session_duration = 7200 # 2 hours
-}
-
-resource "aws_iam_policy_attachment" "glue_policy" {
-  name       = "glue_attach-policy"
-  roles      = [aws_iam_role.glue_role.name]
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole"
-}
-
-resource "aws_iam_policy_attachment" "ssm_policy" {
-  name       = "glue_attach-ssm"
-  roles      = [aws_iam_role.glue_role.name]
-  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMReadOnlyAccess"
-}
-resource "aws_iam_policy" "s3_policy" {
-  name        = "glue-s3-policy"
-  description = "Policy to allow Glue to access S3 buckets"
-  policy      = data.aws_iam_policy_document.policy.json
-}
-resource "aws_iam_policy_attachment" "s3_policy" {
-  name       = "glue_attach-s3"
-  roles      = [aws_iam_role.glue_role.name]
-  policy_arn = aws_iam_policy.s3_policy.arn
-}
-
 
 # 4. SSM Parameter
 resource "aws_ssm_parameter" "airflow_admin_password" {
@@ -325,27 +333,93 @@ resource "aws_ssm_parameter" "seatgeek_client_secret" {
 
 }
 
-# glue job to process music albums data
-# resource "aws_glue_job" "artist_discovery" {
-#   name     = "artist_albums_job"
-#   description = "Glue job to process music albums data"
-#   role_arn = aws_iam_role.glue_role.arn
 
-#   command {
-#     name            = "pythonshell"
-#     script_location = "s3://artist-discovery-scripts/get_music_albums.py"
-#     python_version  = "3.9"
-#   }
+resource "aws_glue_catalog_database" "events_db" {
+  name = "events_db"
+}
 
-# # created a zip file with pyarrow and pyjwt[crypto] and uploaded to S3
-# # This is used to run the Glue job with the necessary dependencies
-#   default_arguments = {
-#     "--extra-py-files" = "s3://artist-discovery-scripts/glue_deps.zip"
-#   }
+resource "aws_glue_catalog_table" "events_table" {
+  name          = "artist_events"
+  database_name = aws_glue_catalog_database.events_db.name
 
-#   max_capacity = 0.0625
-#   max_retries       = 0
-# }
+  table_type = "EXTERNAL_TABLE"
+
+  parameters = {
+    classification = "parquet"
+    "compressionType" = "none"
+    "typeOfData"      = "file"
+  }
+
+  storage_descriptor {
+    location      = "s3://artist-discovery-data/analytics/upcoming-events/"
+    input_format  = "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat"
+    output_format = "org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat"
+
+    ser_de_info {
+      serialization_library = "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe"
+
+      parameters = {
+        "serialization.format" = "1"
+      }
+    }
+
+    columns {
+      name = "id"
+      type = "string"
+    }
+
+    columns {
+      name = "event_date_time"
+      type = "timestamp"
+    }
+
+    columns {
+      name = "event_name"
+      type = "string"
+    }
+
+    columns {
+      name = "album_artist"
+      type = "string"
+    }
+    
+    columns {
+      name = "album_name"
+      type = "string"
+    }
+
+    columns {
+      name = "release_date"
+      type = "string"
+    }
+    columns {
+      name = "venue_name"
+      type = "string"
+    }
+
+    columns {
+      name = "venue_type"
+      type = "string"
+    }
+
+    columns {
+      name = "venue_city"
+      type = "string"
+    }
+
+    columns {
+      name = "venue_state"
+      type = "string"
+    }
+
+    stored_as_sub_directories = false
+  }
+
+  partition_keys {
+    name = "date"
+    type = "string"
+  }
+}
 
 
 resource "aws_instance" "airflow-server" {
@@ -365,6 +439,28 @@ resource "aws_instance" "airflow-server" {
 
   tags = {
     Name = "Airflow-Server"
+  }
+}
+
+resource "aws_instance" "metabase-server" {
+  ami                    = "ami-0fe972392d04329e1" # Amazon Linux Free Tier
+  instance_type          = "t2.micro"
+  key_name               = aws_key_pair.metabase_generated_key.key_name
+  subnet_id              = aws_subnet.subnet-1.id
+  vpc_security_group_ids = [aws_security_group.metabase_security_group.id]
+
+  user_data = <<-EOF
+              #!/bin/bash
+              yum update -y
+              amazon-linux-extras enable docker
+              yum install -y docker
+              service docker start
+              usermod -a -G docker ec2-user
+              docker run -d -p 3000:3000 --name metabase metabase/metabase
+              EOF
+
+  tags = {
+    Name = "Metabase-Server"
   }
 }
 

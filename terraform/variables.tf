@@ -11,6 +11,12 @@ variable "key_name" {
   default     = "sde-key"
 }
 
+variable "metabase_key_name" {
+  description = "EC2 key name"
+  type        = string
+  default     = "metabase-key"
+}
+
 
 variable "airflow_admin_password" {
   description = "EC2 airflow password"
