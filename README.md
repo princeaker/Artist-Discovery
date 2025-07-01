@@ -85,3 +85,4 @@ To run this project you'll need to meet several prerequisites:
 - Place Airflow within a container
 - Setup CI/CD for DAG deployment
 - unit test for API extractors with Great Expectations
+- HTTPS reverse proxy
