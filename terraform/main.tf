@@ -444,7 +444,7 @@ resource "aws_instance" "airflow-server" {
 
 resource "aws_instance" "metabase-server" {
   ami                    = "ami-0fe972392d04329e1" # Amazon Linux Free Tier
-  instance_type          = "t2.micro"
+  instance_type          = "t3a.small"
   key_name               = aws_key_pair.metabase_generated_key.key_name
   subnet_id              = aws_subnet.subnet-1.id
   vpc_security_group_ids = [aws_security_group.metabase_security_group.id]

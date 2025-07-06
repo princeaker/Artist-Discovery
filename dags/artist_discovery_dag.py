@@ -1,10 +1,13 @@
 from airflow import DAG
 from datetime import datetime
 from airflow.operators.python import PythonOperator
+from airflow.providers.amazon.aws.operators.athena import AthenaOperator
+from utils.artist_discovery_dag.discovery_utils.aws_helpers.aws_utils import S3_ATHENA_OUTPUT, TABLE, DATABASE
 from utils.artist_discovery_dag.discovery_utils.album_utils import album_process
 from utils.artist_discovery_dag.discovery_utils.event_utils import event_process
 from utils.artist_discovery_dag.discovery_utils.artist_events_utils import artist_events_process
 # from airflow.providers.amazon.aws.operators.glue import GlueJobOperator
+
 
 
 with DAG(
@@ -38,6 +41,14 @@ with DAG(
         task_id='get_artist_upcoming_events',
         python_callable=artist_events_process  # Replace with your analytics processing function
     )
+
+    repair_table_task = AthenaOperator(
+        task_id="repair_athena_table",
+        query=f"MSCK REPAIR TABLE {TABLE};",
+        database=DATABASE,
+        output_location=S3_ATHENA_OUTPUT,
+        region_name='us-east-2',
+    )
     
 
     # artist_albums_task = GlueJobOperator(
@@ -47,4 +58,4 @@ with DAG(
     #     region_name='us-east-2',  # Update with your region
     # )
     
-    get_albums_task >> get_events_task >> get_artist_upcoming_events_task
+    get_albums_task >> get_events_task >> get_artist_upcoming_events_task >> repair_table_task
